@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Quản lý Học phí & Cổng Tra cứu Học sinh (Live Production)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(120%); opacity: 0; }
+        }
+        .toast-active {
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .toast-closing {
+            animation: slideOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+    <!-- Container chứa thông báo nổi (Toast) -->
+    <div id="toast-container" class="fixed top-20 right-4 z-[9999] flex flex-col gap-3 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+
+    <!-- Top Navigation Bar -->
+    <nav class="bg-indigo-900 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-600 p-2 rounded-lg text-white">
+                        <i class="fa-solid fa-graduation-cap text-xl"></i>
+                    </div>
+                    <div>
+                        <span class="font-bold text-lg tracking-wide block">EDU-CENTER</span>
+                        <span class="text-xs text-indigo-300 -mt-1 block">Hệ thống Quản lý & Gạch nợ Tự động</span>
+                    </div>
+                </div>
+                
+                <!-- Giao diện chuyển đổi Mode -->
+                <div class="flex space-x-2 bg-indigo-950 p-1 rounded-xl">
+                    <button id="btn-parent-view" onclick="switchView('parent')" class="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 bg-indigo-600 text-white shadow">
+                        <i class="fa-solid fa-user-shield"></i>
+                        <span>Phụ huynh / Học sinh</span>
+                    </button>
+                    <button id="btn-admin-view" onclick="switchView('admin')" class="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 text-indigo-300 hover:text-white">
+                        <i class="fa-solid fa-user-gear"></i>
+                        <span>Ban Quản trị (Admin)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- TRẠNG THÁI KẾT NỐI LIVE GOOGLE SHEETS -->
+        <div id="connection-status-bar" class="mb-6 p-3 rounded-xl text-xs font-semibold flex items-center justify-between hidden">
+            <!-- Được render tự động qua JS để báo trạng thái vận hành -->
+        </div>
+
+        <!-- ==================== 1. GIAO DIỆN PHỤ HUYNH / HỌC SINH ==================== -->
+        <section id="section-parent" class="space-y-6 transition-all duration-300">
+            <div class="text-center max-w-2xl mx-auto space-y-2 mb-8">
+                <h1 class="text-3xl font-extrabold text-slate-800 sm:text-4xl">Cổng Tra Cứu Học Phí Trực Tuyến</h1>
+                <p class="text-slate-600 text-base">
+                    Nhập Số điện thoại hoặc Số căn cước công dân của phụ huynh để kiểm tra chi tiết các lớp học và thực hiện đóng phí bằng VietQR định danh tự động.
+                </p>
+            </div>
+
+            <!-- Form Tìm kiếm học sinh -->
+            <div class="max-w-xl mx-auto bg-white p-6 rounded-2xl shadow-md border border-slate-100">
+                <div class="space-y-4">
+                    <label class="block text-sm font-semibold text-slate-700">Thông tin tìm kiếm con em:</label>
+                    <div class="relative rounded-xl shadow-sm">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </div>
+                        <input type="text" id="parent-search-input" 
+                            class="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-900 font-medium placeholder-slate-400" 
+                            placeholder="Nhập SĐT hoặc CCCD phụ huynh...">
+                    </div>
+                    <button onclick="searchStudent()" id="btn-parent-search"
+                        class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition duration-200 flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-search"></i>
+                        <span>Tìm Kiếm Thông Tin</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Kết quả tìm kiếm -->
+            <div id="parent-search-result" class="hidden max-w-4xl mx-auto space-y-6">
+                
+                <!-- Khung hồ sơ học sinh -->
+                <div class="bg-white rounded-2xl shadow-md border border-slate-100 overflow-hidden">
+                    <div class="bg-gradient-to-r from-indigo-800 to-indigo-600 text-white p-6">
+                        <div class="flex flex-col md:flex-row justify-between md:items-center space-y-4 md:space-y-0">
+                            <div>
+                                <span class="text-xs font-semibold uppercase tracking-wider bg-indigo-500 text-white px-2.5 py-1 rounded-full">Hồ sơ học viên</span>
+                                <h2 class="text-2xl font-bold mt-2" id="res-student-name">-</h2>
+                                <p class="text-indigo-200 text-sm mt-1">Mã định danh học sinh: <span class="font-mono font-bold text-white" id="res-student-id">-</span></p>
+                            </div>
+                            <div class="bg-indigo-900/40 p-3 rounded-xl border border-indigo-400/30 text-sm">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fa-solid fa-user"></i>
+                                    <span>Phụ huynh: <strong id="res-parent-name">-</strong></span>
+                                </div>
+                                <div class="flex items-center space-x-2 mt-1">
+                                    <i class="fa-solid fa-phone"></i>
+                                    <span>SĐT: <strong id="res-parent-phone">-</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Danh sách lớp học -->
+                    <div class="p-6">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center space-x-2">
+                            <i class="fa-solid fa-book text-indigo-600"></i>
+                            <span>Danh sách lớp học / môn học đăng ký</span>
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-200">
+                                <thead class="bg-slate-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Tên Lớp / Môn học</th>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Giáo viên</th>
+                                        <th class="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Học phí</th>
+                                        <th class="px-6 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-slate-200" id="res-classes-table-body">
+                                    <!-- Render động qua JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- THANH TOÁN VIETQR ĐỘNG -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- Khung hóa đơn -->
+                    <div class="bg-white rounded-2xl p-6 shadow-md border border-slate-100 flex flex-col justify-between">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center space-x-2">
+                                <i class="fa-solid fa-file-invoice-dollar text-indigo-600"></i>
+                                <span>Chi tiết học phí cần đóng</span>
+                            </h3>
+                            <div class="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                <div class="flex justify-between text-sm text-slate-600">
+                                    <span>Học phí các môn:</span>
+                                    <span id="bill-subtotal" class="font-semibold text-slate-800">0 đ</span>
+                                </div>
+                                <div class="flex justify-between text-sm text-slate-600">
+                                    <span>Đã đóng trước đó:</span>
+                                    <span id="bill-paid-already" class="font-semibold text-emerald-600">-0 đ</span>
+                                </div>
+                                <div class="border-t border-slate-200 pt-3 flex justify-between items-center">
+                                    <span class="text-base font-bold text-slate-800">Tổng tiền cần đóng:</span>
+                                    <span id="bill-total-due" class="text-2xl font-extrabold text-indigo-600">0 đ</span>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 space-y-3">
+                                <h4 class="text-sm font-semibold text-slate-700">Thông tin tài khoản thụ hưởng của trung tâm:</h4>
+                                <div class="text-sm text-slate-600 space-y-1.5 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                    <div class="flex justify-between"><span>Ngân hàng:</span><strong id="live-bank-name" class="text-indigo-900">Vietcombank (VCB)</strong></div>
+                                    <div class="flex justify-between"><span>Số tài khoản:</span><strong id="live-bank-account" class="text-indigo-900 font-mono">1029384756</strong></div>
+                                    <div class="flex justify-between"><span>Chủ tài khoản:</span><strong id="live-bank-user" class="text-indigo-900">TRUNG TAM GIAO DUC EDU-CENTER</strong></div>
+                                    <div class="flex justify-between"><span>Cú pháp cố định:</span><strong class="text-emerald-700 font-mono" id="bill-transfer-content">HS8291 TRIET HOCPHI</strong></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 pt-4 border-t border-slate-100">
+                            <div class="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs flex items-start space-x-2">
+                                <i class="fa-solid fa-circle-info mt-0.5 text-amber-600"></i>
+                                <span><strong>Mẹo nhỏ:</strong> Phụ huynh hãy mở app ngân hàng bất kỳ để quét mã QR bên cạnh. Hệ thống sẽ tự nhận diện tức thì ngay sau khi tiền vào tài khoản trung tâm!</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Khung quét mã VietQR động -->
+                    <div class="bg-white rounded-2xl p-6 shadow-md border border-slate-100 flex flex-col items-center justify-center text-center">
+                        <div class="w-full">
+                            <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full uppercase tracking-wider inline-flex items-center space-x-1">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span id="payment-status-badge">Đang chờ quét mã thanh toán...</span>
+                            </span>
+                            <p class="text-xs text-slate-400 mt-2">Nội dung và số tiền đã được mã hóa tự động để đối soát gạch nợ tự động</p>
+                        </div>
+
+                        <!-- Chỗ hiển thị QR code tạo từ API VietQR -->
+                        <div class="my-6 p-4 bg-white border border-slate-100 rounded-2xl shadow-inner relative" id="qr-loading-container">
+                            <img id="vietqr-image" class="w-64 h-64 object-contain transition-all duration-300" src="" alt="Mã VietQR">
+                            <div id="qr-status-overlay" class="absolute inset-0 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center space-y-2 hidden">
+                                <div class="bg-emerald-100 text-emerald-600 p-4 rounded-full text-3xl">
+                                    <i class="fa-solid fa-circle-check animate-bounce"></i>
+                                </div>
+                                <span class="font-bold text-emerald-800 text-lg">Đóng Phí Thành Công!</span>
+                                <span class="text-xs text-slate-500">Hệ thống ngân hàng đã xác nhận thanh toán trực tuyến.</span>
+                            </div>
+                        </div>
+
+                        <div class="text-xs text-slate-500 space-y-1 max-w-xs">
+                            <p class="font-semibold text-slate-600"><i class="fa-solid fa-shield-halved text-indigo-500 mr-1"></i>Đối soát tự động trực tuyến 24/7</p>
+                            <p>Không lo chuyển khoản nhầm số tài khoản hoặc nhập sai tên con.</p>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ==================== 2. GIAO DIỆN QUẢN TRỊ VIÊN (ADMIN) ==================== -->
+        <section id="section-admin" class="hidden space-y-6 transition-all duration-300">
+            
+            <!-- CẤU HÌNH LIVE GOOGLE SHEETS & NGÂN HÀNG TRỰC TIẾP -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                    <i class="fa-solid fa-sliders text-indigo-600"></i>
+                    <span>Cấu hình kết nối hệ thống thực tế (Trọn Đời)</span>
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">URL Google Apps Script API (Nhận từ Google Sheet):</label>
+                        <input type="text" id="cfg-apps-script-url" onchange="saveConfig()" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none font-mono" placeholder="https://script.google.com/macros/s/.../exec">
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="col-span-1">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Ngân hàng thụ hưởng:</label>
+                            <input type="text" id="cfg-bank-id" onchange="saveConfig()" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="vcb, mbb, acb...">
+                        </div>
+                        <div class="col-span-1">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Số tài khoản:</label>
+                            <input type="text" id="cfg-bank-account" onchange="saveConfig()" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="1029384756">
+                        </div>
+                        <div class="col-span-1">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tên chủ tài khoản:</label>
+                            <input type="text" id="cfg-bank-user" onchange="saveConfig()" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none uppercase" placeholder="NGUYEN VAN A">
+                        </div>
+                    </div>
+                </div>
+                <div class="p-3 bg-indigo-50 text-indigo-900 rounded-xl text-xs space-y-1">
+                    <p class="font-semibold"><i class="fa-solid fa-circle-question mr-1"></i>Hướng dẫn cài đặt thực tế:</p>
+                    <ol class="list-decimal pl-4 space-y-0.5">
+                        <li>Mở một file Google Sheets mới.</li>
+                        <li>Vào <strong>Tiện ích mở rộng (Extensions)</strong> -> <strong>Apps Script</strong>. Dán toàn bộ code tệp <code>backend.js</code> vào và lưu lại.</li>
+                        <li>Nhấn nút <strong>Triển khai (Deploy)</strong> -> <strong>Triển khai mới (New deployment)</strong>. Chọn loại là <strong>Ứng dụng web (Web app)</strong>.</li>
+                        <li>Thiết lập: Người thực thi là <strong>Tôi (Me)</strong>, và Người có quyền truy cập là <strong>Bất kỳ ai (Anyone)</strong>. Tiến hành triển khai và sao chép đường dẫn Web App nhận được dán vào ô trên!</li>
+                        <li>Đăng ký tài khoản miễn phí trên SePay, Casso hoặc PayOS, và dán URL Web App trên làm <strong>Webhook</strong> của bạn.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Thống kê Dashboard -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="bg-indigo-50 p-3.5 rounded-xl text-indigo-600 text-2xl"><i class="fa-solid fa-users"></i></div>
+                    <div>
+                        <span class="text-sm text-slate-400 block font-medium">Sĩ số học sinh</span>
+                        <strong class="text-2xl text-slate-800 font-bold" id="stat-total-students">0</strong>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="bg-emerald-50 p-3.5 rounded-xl text-emerald-600 text-2xl"><i class="fa-solid fa-circle-check"></i></div>
+                    <div>
+                        <span class="text-sm text-slate-400 block font-medium">Học viên đã hoàn thành</span>
+                        <strong class="text-2xl text-slate-800 font-bold" id="stat-paid-count">0 / 0</strong>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="bg-amber-50 p-3.5 rounded-xl text-amber-600 text-2xl"><i class="fa-solid fa-hourglass-half"></i></div>
+                    <div>
+                        <span class="text-sm text-slate-400 block font-medium">Doanh thu thu về</span>
+                        <strong class="text-2xl text-emerald-600 font-bold" id="stat-total-collected">0 đ</strong>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="bg-rose-50 p-3.5 rounded-xl text-rose-600 text-2xl"><i class="fa-solid fa-circle-exclamation"></i></div>
+                    <div>
+                        <span class="text-sm text-slate-400 block font-medium">Còn nợ học phí</span>
+                        <strong class="text-2xl text-rose-600 font-bold" id="stat-total-unpaid">0 đ</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Khung danh sách và bảng giao dịch -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div class="lg:col-span-2 space-y-6">
+                    <!-- Danh sách học sinh -->
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                            <h3 class="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                                <i class="fa-solid fa-address-book text-indigo-600"></i>
+                                <span>Dữ liệu học sinh trực tiếp</span>
+                            </h3>
+                            <button onclick="openAddStudentModal()" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all flex items-center space-x-1.5">
+                                <i class="fa-solid fa-user-plus"></i>
+                                <span>Thêm Học Sinh Mới</span>
+                            </button>
+                        </div>
+
+                        <div class="p-6 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row gap-3">
+                            <div class="relative flex-grow">
+                                <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-solid fa-magnifying-glass"></i></span>
+                                <input type="text" id="admin-search-input" onkeyup="filterAdminStudents()" class="block w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm" placeholder="Tìm kiếm tên, SĐT con...">
+                            </div>
+                            <select id="admin-filter-status" onchange="filterAdminStudents()" class="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none">
+                                <option value="all">Tất cả trạng thái</option>
+                                <option value="unpaid">Chưa đóng tiền</option>
+                                <option value="paid">Đã đóng tiền</option>
+                            </select>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-200">
+                                <thead class="bg-slate-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Học sinh</th>
+                                        <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Các lớp học chéo</th>
+                                        <th class="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Tổng học phí</th>
+                                        <th class="px-6 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Trạng thái</th>
+                                        <th class="px-6 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Thao tác</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-slate-100" id="admin-students-table-body">
+                                    <!-- Render động qua API/LocalStorage -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Webhook biến động số dư / Nhật ký giao dịch -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 space-y-6">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                                <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i>
+                                <span>Nhật ký thanh toán ngân hàng</span>
+                            </h3>
+                            <span class="text-xs bg-emerald-50 text-emerald-600 font-bold px-2.5 py-1 rounded-full flex items-center space-x-1 animate-pulse">
+                                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                <span>Live Sync</span>
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-500">Biến động số dư tài khoản ngân hàng thực tế đồng bộ qua Webhook SePay/PayOS/Casso.</p>
+                    </div>
+
+                    <div class="space-y-3 max-h-[480px] overflow-y-auto" id="admin-transactions-list">
+                        <!-- Render tự động -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="bg-slate-900 text-white py-6 border-t border-slate-800 text-center">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-sm space-y-2">
+            <p class="font-semibold">Hệ thống Quản lý & Thu phí Tự động Trọn Đời Không Thu Phí</p>
+            <p class="text-slate-400 text-xs">Mã nguồn độc lập kết hợp Google Sheets API & VietQR Động.</p>
+        </div>
+    </footer>
+
+    <!-- MODAL: Admin Thêm Học Sinh Mới -->
+    <div id="modal-add-student" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-xl m-4 border border-slate-100">
+            <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                <h3 class="text-lg font-bold text-slate-800 font-bold">Thêm Học Sinh Mới</h3>
+                <button onclick="closeAddStudentModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="add-student-form" onsubmit="saveNewStudent(event)" class="py-4 space-y-4 max-h-[450px] overflow-y-auto">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Họ tên học sinh:</label>
+                        <input type="text" id="add-name" required class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="Nguyễn Văn A">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">SĐT phụ huynh:</label>
+                        <input type="text" id="add-phone" required class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="0912345678">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">CCCD phụ huynh:</label>
+                        <input type="text" id="add-cccd" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="001201002345">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tên phụ huynh:</label>
+                        <input type="text" id="add-parent-name" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="Nguyễn Văn B">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-2">Đăng ký lớp học (Tích chọn nhiều lớp):</label>
+                    <div class="space-y-2 border border-slate-100 p-3 rounded-xl bg-slate-50" id="class-checkboxes-container">
+                        <!-- Danh sách môn sinh ra ở JS -->
+                    </div>
+                </div>
+            </form>
+            <div class="flex space-x-2 pt-4 border-t border-slate-100">
+                <button onclick="closeAddStudentModal()" class="flex-1 py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-xl text-sm transition">Đóng</button>
+                <button type="submit" form="add-student-form" class="flex-1 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition">Lưu học viên</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIC HOẠT ĐỘNG (JAVASCRIPT TRỰC TIẾP) -->
+    <script>
+        // --- STREAMING_CHUNK: Thiết lập dữ liệu mẫu và cấu hình liên kết hệ thống... ---
+        
+        const AVAILABLE_CLASSES = [
+            { id: 'math', name: 'Toán học nâng cao (Thầy Nam)', fee: 800000, teacher: 'Thầy Nam' },
+            { id: 'physics', name: 'Vật lý 12 luyện thi (Thầy Bình)', fee: 700000, teacher: 'Thầy Bình' },
+            { id: 'english', name: 'Tiếng Anh giao tiếp IELTS (Cô Chi)', fee: 1200000, teacher: 'Cô Chi' },
+            { id: 'chemistry', name: 'Hóa học nền tảng (Thầy Sơn)', fee: 700000, teacher: 'Thầy Sơn' },
+            { id: 'literature', name: 'Ngữ văn nghị luận xã hội (Cô Hoa)', fee: 800000, teacher: 'Cô Hoa' }
+        ];
+
+        // Trạng thái cấu hình mặc định (Nếu chưa kết nối Google Sheet)
+        let systemConfig = {
+            appsScriptUrl: "",
+            bankId: "vcb",
+            bankAccount: "1029384756",
+            bankUser: "TRUNG TAM GIAO DUC EDU-CENTER"
+        };
+
+        // Trạng thái dữ liệu nội bộ (chế độ Offline/Local fallback)
+        let offlineStudents = [
+            { id: 'HS-8291', name: 'Nguyễn Minh Triết', parentName: 'Nguyễn Văn Triết', phone: '0912345678', cccd: '001201002345', classes: ['math', 'physics'], status: 'unpaid', totalFee: 1500000 },
+            { id: 'HS-1042', name: 'Trần Thị Mai Anh', parentName: 'Trần Văn Anh', phone: '0987654321', cccd: '001202005678', classes: ['english', 'literature'], status: 'unpaid', totalFee: 2000000 },
+            { id: 'HS-3401', name: 'Lê Hoàng Nam', parentName: 'Lê Hoài Nam', phone: '0933445566', cccd: '001203009999', classes: ['math', 'chemistry'], status: 'paid', totalFee: 1500000 }
+        ];
+        let offlineTransactions = [];
+
+        let currentActiveStudent = null;
+        let isLiveMode = false;
+        let pollingInterval = null;
+
+        // --- STREAMING_CHUNK: Quản lý khởi tạo và lưu cấu hình kết nối ngân hàng... ---
+
+        function initApp() {
+            // Tải cấu hình từ bộ nhớ cục bộ
+            const savedConfig = localStorage.getItem('edu_system_config');
+            if (savedConfig) {
+                systemConfig = JSON.parse(savedConfig);
+            }
+            
+            // Đổ cấu hình lên giao diện Admin
+            document.getElementById('cfg-apps-script-url').value = systemConfig.appsScriptUrl || "";
+            document.getElementById('cfg-bank-id').value = systemConfig.bankId;
+            document.getElementById('cfg-bank-account').value = systemConfig.bankAccount;
+            document.getElementById('cfg-bank-user').value = systemConfig.bankUser;
+
+            // Đồng bộ thông tin ngân hàng hiển thị ở đầu Phụ huynh
+            document.getElementById('live-bank-name').innerText = systemConfig.bankId.toUpperCase();
+            document.getElementById('live-bank-account').innerText = systemConfig.bankAccount;
+            document.getElementById('live-bank-user').innerText = systemConfig.bankUser;
+
+            // Kiểm tra trạng thái vận hành
+            const statusBar = document.getElementById('connection-status-bar');
+            statusBar.classList.remove('hidden');
+
+            if (systemConfig.appsScriptUrl && systemConfig.appsScriptUrl.trim() !== "") {
+                isLiveMode = true;
+                statusBar.className = "mb-6 p-3 rounded-xl text-xs font-semibold flex items-center justify-between bg-emerald-50 text-emerald-800 border border-emerald-200";
+                statusBar.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+                        <span><strong>Trạng thái: Trực Tuyến (Live Mode)</strong>. Mọi thao tác đang đồng bộ trực tiếp lên Google Sheets của bạn.</span>
+                    </div>
+                `;
+            } else {
+                isLiveMode = false;
+                statusBar.className = "mb-6 p-3 rounded-xl text-xs font-semibold flex items-center justify-between bg-amber-50 text-amber-800 border border-amber-200";
+                statusBar.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 bg-amber-500 rounded-full"></span>
+                        <span><strong>Trạng thái: Giả Lập / Ngoại tuyến (Demo Mode)</strong>. Vui lòng cấu hình URL Google Sheets ở tab Quản trị để chạy thực tế.</span>
+                    </div>
+                `;
+                // Nạp dữ liệu Offline
+                if (!localStorage.getItem('edu_offline_students')) {
+                    localStorage.setItem('edu_offline_students', JSON.stringify(offlineStudents));
+                }
+                offlineStudents = JSON.parse(localStorage.getItem('edu_offline_students'));
+            }
+
+            updateDashboard();
+        }
+
+        function saveConfig() {
+            systemConfig.appsScriptUrl = document.getElementById('cfg-apps-script-url').value.trim();
+            systemConfig.bankId = document.getElementById('cfg-bank-id').value.trim();
+            systemConfig.bankAccount = document.getElementById('cfg-bank-account').value.trim();
+            systemConfig.bankUser = document.getElementById('cfg-bank-user').value.trim().toUpperCase();
+
+            localStorage.setItem('edu_system_config', JSON.stringify(systemConfig));
+            showNotification("⚙️ Hệ thống", "Cấu hình cổng ngân hàng đã được lưu!", "success");
+            
+            // Tải lại ứng dụng để áp dụng cấu hình mới
+            initApp();
+        }
+
+        // --- STREAMING_CHUNK: Triển khai công cụ phát âm thanh báo tiền về và hiện Toast nổi... ---
+
+        function playChime() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const audioCtx = new AudioContext();
+                
+                // Ting ting
+                const osc1 = audioCtx.createOscillator();
+                const gain1 = audioCtx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                gain1.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc1.connect(gain1);
+                gain1.connect(audioCtx.destination);
+                
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(1046.50, audioCtx.currentTime + 0.08); // C6
+                gain2.gain.setValueAtTime(0.2, audioCtx.currentTime + 0.08);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.45);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                
+                osc1.start();
+                osc2.start();
+                osc1.stop(audioCtx.currentTime + 0.4);
+                osc2.stop(audioCtx.currentTime + 0.5);
+            } catch (e) {
+                console.log("AudioContext blocked");
+            }
+        }
+
+        function showNotification(title, message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            toast.className = `toast-active pointer-events-auto bg-white border rounded-2xl shadow-xl p-4 flex items-start space-x-3 max-w-sm w-full transition-all duration-300 ${
+                type === 'success' ? 'border-emerald-200' : 'border-indigo-200'
+            }`;
+
+            const icon = type === 'success' 
+                ? '<div class="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl"><i class="fa-solid fa-money-bill-transfer text-lg animate-bounce"></i></div>'
+                : '<div class="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl"><i class="fa-solid fa-receipt text-lg"></i></div>';
+
+            toast.innerHTML = `
+                ${icon}
+                <div class="flex-grow min-w-0">
+                    <h4 class="font-bold text-slate-800 text-sm leading-tight">${title}</h4>
+                    <p class="text-xs text-slate-500 mt-1 leading-normal">${message}</p>
+                </div>
+                <button onclick="dismissToast(this)" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                </button>
+            `;
+
+            container.appendChild(toast);
+            setTimeout(() => { dismissToast(toast.querySelector('button')); }, 8000);
+        }
+
+        function dismissToast(btn) {
+            if (!btn) return;
+            const toast = btn.closest('.toast-active');
+            if (toast) {
+                toast.classList.remove('toast-active');
+                toast.classList.add('toast-closing');
+                setTimeout(() => { toast.remove(); }, 300);
+            }
+        }
+
+        // --- STREAMING_CHUNK: Quản lý điều hướng giao diện Tab... ---
+
+        function switchView(view) {
+            const btnParent = document.getElementById('btn-parent-view');
+            const btnAdmin = document.getElementById('btn-admin-view');
+            const secParent = document.getElementById('section-parent');
+            const secAdmin = document.getElementById('section-admin');
+
+            if (view === 'parent') {
+                btnParent.className = "px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 bg-indigo-600 text-white shadow";
+                btnAdmin.className = "px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 text-indigo-300 hover:text-white";
+                secParent.classList.remove('hidden');
+                secAdmin.classList.add('hidden');
+            } else {
+                btnAdmin.className = "px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 bg-indigo-600 text-white shadow";
+                btnParent.className = "px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center space-x-2 text-indigo-300 hover:text-white";
+                secAdmin.classList.remove('hidden');
+                secParent.classList.add('hidden');
+                updateDashboard();
+            }
+        }
+
+        // --- STREAMING_CHUNK: Phát triển hệ thống API tra cứu học sinh trực tuyến từ Google Sheets... ---
+
+        async function searchStudent() {
+            const query = document.getElementById('parent-search-input').value.trim();
+            if (!query) {
+                alert('Vui lòng nhập số điện thoại hoặc CCCD của phụ huynh!');
+                return;
+            }
+
+            const btn = document.getElementById('btn-parent-search');
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> <span>Đang tìm kiếm...</span>`;
+            btn.disabled = true;
+
+            try {
+                if (isLiveMode) {
+                    // Truy vấn dữ liệu sống từ Google Sheets
+                    const response = await fetch(`${systemConfig.appsScriptUrl}?action=search&query=${encodeURIComponent(query)}`);
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        currentActiveStudent = result.student;
+                        renderParentResult(result.student);
+                        startLivePaymentPolling(); // Kích hoạt bộ quét tự động gạch nợ sau mỗi 5 giây
+                    } else {
+                        alert('Không tìm thấy học viên tương ứng với thông tin đăng ký. Vui lòng kiểm tra lại!');
+                        document.getElementById('parent-search-result').classList.add('hidden');
+                        stopLivePaymentPolling();
+                    }
+                } else {
+                    // Sử dụng dữ liệu Offline Fallback
+                    const student = offlineStudents.find(s => s.phone === query || s.cccd === query);
+                    if (student) {
+                        currentActiveStudent = student;
+                        renderParentResult(student);
+                    } else {
+                        alert('Không tìm thấy học viên trong dữ liệu mẫu. (SĐT gợi ý: 0912345678)');
+                        document.getElementById('parent-search-result').classList.add('hidden');
+                    }
+                }
+            } catch (err) {
+                console.error("Lỗi tìm kiếm:", err);
+                alert('Có lỗi xảy ra trong kết nối API Google Sheets. Vui lòng kiểm tra lại cấu hình URL!');
+            } finally {
+                btn.innerHTML = `<i class="fa-solid fa-search"></i> <span>Tìm Kiếm Thông Tin</span>`;
+                btn.disabled = false;
+            }
+        }
+
+        function calculateTotalTuition(student) {
+            let total = 0;
+            student.classes.forEach(classId => {
+                const c = AVAILABLE_CLASSES.find(x => x.id === classId);
+                if (c) total += c.fee;
+            });
+            return total;
+        }
+
+        function formatCurrency(num) {
+            return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
+        }
+
+        // --- STREAMING_CHUNK: Trình bày thông tin biên lai hóa đơn và mã QR động... ---
+
+        function renderParentResult(student) {
+            document.getElementById('res-student-name').innerText = student.name;
+            document.getElementById('res-student-id').innerText = student.id;
+            document.getElementById('res-parent-name').innerText = student.parentName;
+            document.getElementById('res-parent-phone').innerText = student.phone;
+
+            // Bảng danh sách các môn
+            const tableBody = document.getElementById('res-classes-table-body');
+            tableBody.innerHTML = '';
+
+            student.classes.forEach(classId => {
+                const c = AVAILABLE_CLASSES.find(x => x.id === classId);
+                if (c) {
+                    const statusText = student.status === 'paid' ? 'Đã thanh toán' : 'Chưa đóng';
+                    const statusClass = student.status === 'paid' 
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                        : 'bg-rose-50 text-rose-700 border border-rose-200';
+                    
+                    const row = `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-slate-800">${c.name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">${c.teacher}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-slate-800">${formatCurrency(c.fee)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                <span class="px-2.5 py-1 rounded-full text-xs font-bold ${statusClass}">${statusText}</span>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.innerHTML += row;
+                }
+            });
+
+            // Tính tiền và tạo VietQR động
+            const totalTuition = student.totalFee || calculateTotalTuition(student);
+            document.getElementById('bill-subtotal').innerText = formatCurrency(totalTuition);
+
+            const billTotalDue = document.getElementById('bill-total-due');
+            const qrOverlay = document.getElementById('qr-status-overlay');
+            const badgeStatus = document.getElementById('payment-status-badge');
+
+            if (student.status === 'paid') {
+                document.getElementById('bill-paid-already').innerText = `-${formatCurrency(totalTuition)}`;
+                billTotalDue.innerText = formatCurrency(0);
+                qrOverlay.classList.remove('hidden');
+                badgeStatus.innerText = "Đã nhận tiền nộp phí";
+                badgeStatus.className = "text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full uppercase tracking-wider inline-flex items-center space-x-1 font-bold";
+                generateVietQR(student, 0);
+            } else {
+                document.getElementById('bill-paid-already').innerText = `-${formatCurrency(0)}`;
+                billTotalDue.innerText = formatCurrency(totalTuition);
+                qrOverlay.classList.add('hidden');
+                badgeStatus.innerText = "Đang chờ quét mã thanh toán...";
+                badgeStatus.className = "text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full uppercase tracking-wider inline-flex items-center space-x-1 font-bold";
+                generateVietQR(student, totalTuition);
+            }
+
+            document.getElementById('parent-search-result').classList.remove('hidden');
+        }
+
+        function generateVietQR(student, amount) {
+            const bankId = systemConfig.bankId;
+            const accountNo = systemConfig.bankAccount;
+            const accountName = systemConfig.bankUser;
+            
+            const unsignedStudentName = removeVietnameseTones(student.name).toUpperCase().replace(/\s+/g, '');
+            const transferMemo = `${student.id} ${unsignedStudentName} DONG HOC PHI`;
+
+            document.getElementById('bill-transfer-content').innerText = transferMemo;
+
+            // API VietQR Động tiêu chuẩn quốc gia Napas247
+            const qrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(transferMemo)}&accountName=${encodeURIComponent(accountName)}`;
+            document.getElementById('vietqr-image').src = qrUrl;
+        }
+
+        // --- STREAMING_CHUNK: Thiết lập bộ máy tự động cập nhật thanh toán thời gian thực (Polling)... ---
+
+        function startLivePaymentPolling() {
+            stopLivePaymentPolling();
+            if (!isLiveMode || !currentActiveStudent) return;
+
+            // Thực hiện quét tự động kiểm tra trạng thái trên Google Sheet mỗi 5 giây
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${systemConfig.appsScriptUrl}?action=search&query=${encodeURIComponent(currentActiveStudent.phone)}`);
+                    const result = await response.json();
+                    
+                    if (result.success && result.student.status === 'paid' && currentActiveStudent.status !== 'paid') {
+                        // Tiền vừa về! Báo hiệu nộp phí thành công
+                        currentActiveStudent = result.student;
+                        renderParentResult(result.student);
+                        playChime();
+                        showNotification(
+                            "💸 Hệ Thống Ngân Hàng", 
+                            `Giao dịch nộp phí của học sinh <strong>${result.student.name}</strong> đã hoàn tất thành công!`, 
+                            "success"
+                        );
+                        stopLivePaymentPolling(); // Đã đóng xong thì tắt quét
+                    }
+                } catch (e) {
+                    console.log("Lỗi đồng bộ gạch nợ:", e);
+                }
+            }, 5000);
+        }
+
+        function stopLivePaymentPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        function removeVietnameseTones(str) {
+            str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
+            str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
+            str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
+            str = str.replace(/ò|ó|ọ|ỏ|ã|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
+            str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
+            str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
+            str = str.replace(/đ/g, "d");
+            str = str.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
+            str = str.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
+            str = str.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
+            str = str.replace(/Ò|Ó|Ọ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
+            str = str.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
+            str = str.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
+            str = str.replace(/Đ/g, "D");
+            return str;
+        }
+
+        // --- STREAMING_CHUNK: Quản lý tính toán và đồng bộ dữ liệu thống kê bên Admin... ---
+
+        async function updateDashboard() {
+            let students = [];
+            let transactions = [];
+
+            try {
+                if (isLiveMode) {
+                    // Kéo dữ liệu thực tế từ Google Sheets
+                    const resStudents = await fetch(`${systemConfig.appsScriptUrl}?action=get_all`);
+                    const dataStudents = await resStudents.json();
+                    if (dataStudents.success) students = dataStudents.students;
+
+                    const resTxns = await fetch(`${systemConfig.appsScriptUrl}?action=get_transactions`);
+                    const dataTxns = await resTxns.json();
+                    if (dataTxns.success) transactions = dataTxns.transactions;
+                } else {
+                    // Đổ dữ liệu Offline demo
+                    students = offlineStudents;
+                    transactions = offlineTransactions;
+                }
+            } catch (err) {
+                console.error("Lỗi cập nhật bảng quản trị:", err);
+                isLiveMode = false;
+            }
+
+            // Thống kê tổng số tiền và phân loại nợ phí
+            const totalStudents = students.length;
+            const paidStudents = students.filter(s => s.status === 'paid').length;
+            
+            let totalCollected = 0;
+            let totalUnpaid = 0;
+
+            students.forEach(s => {
+                const fee = s.totalFee || calculateTotalTuition(s);
+                if (s.status === 'paid') {
+                    totalCollected += fee;
+                } else {
+                    totalUnpaid += fee;
+                }
+            });
+
+            document.getElementById('stat-total-students').innerText = totalStudents;
+            document.getElementById('stat-paid-count').innerText = `${paidStudents} / ${totalStudents}`;
+            document.getElementById('stat-total-collected').innerText = formatCurrency(totalCollected);
+            document.getElementById('stat-total-unpaid').innerText = formatCurrency(totalUnpaid);
+
+            renderAdminStudentsTable(students);
+            renderAdminTransactions(transactions);
+        }
+
+        function renderAdminStudentsTable(students) {
+            const tableBody = document.getElementById('admin-students-table-body');
+            tableBody.innerHTML = '';
+
+            students.forEach(student => {
+                const classNames = student.classes.map(id => {
+                    const c = AVAILABLE_CLASSES.find(x => x.id === id);
+                    return c ? `<span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-semibold inline-block mb-1 mr-1">${c.name}</span>` : '';
+                }).join('');
+
+                const tuitionTotal = student.totalFee || calculateTotalTuition(student);
+                const isPaid = student.status === 'paid';
+                
+                const statusBadge = isPaid 
+                    ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-1 rounded-full text-xs">Đã Đóng</span>`
+                    : `<span class="bg-rose-100 text-rose-800 font-bold px-2 py-1 rounded-full text-xs animate-pulse">Chưa Đóng</span>`;
+
+                const actionButton = isPaid
+                    ? `<button onclick="toggleStudentPayment('${student.id}', 'unpaid')" class="text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg font-bold">Thu hồi phí</button>`
+                    : `<button onclick="toggleStudentPayment('${student.id}', 'paid')" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold flex items-center space-x-1 shadow">
+                        <i class="fa-solid fa-cash-register"></i> <span>Ghi nhận đóng</span>
+                       </button>`;
+
+                const row = `
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-semibold text-slate-900">${student.name}</div>
+                            <div class="text-xs text-slate-400">Mã: <span class="font-mono font-semibold">${student.id}</span> | SĐT: ${student.phone}</div>
+                        </td>
+                        <td class="px-6 py-4 text-sm max-w-[250px]">
+                            <div class="flex flex-wrap">${classNames}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-slate-800">${formatCurrency(tuitionTotal)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                            <div class="flex items-center justify-center space-x-2">
+                                ${actionButton}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+
+        function renderAdminTransactions(transactions) {
+            const listContainer = document.getElementById('admin-transactions-list');
+            listContainer.innerHTML = '';
+
+            if (transactions.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center py-8 text-slate-400">
+                        <i class="fa-solid fa-circle-info text-3xl mb-2"></i>
+                        <p class="text-xs">Chưa nhận được giao dịch ngân hàng thực tế nào.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            transactions.forEach(txn => {
+                const isApproved = txn.status === 'approved';
+                const statusBadge = isApproved 
+                    ? `<span class="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded flex items-center space-x-1"><i class="fa-solid fa-circle-check"></i> <span>Đã đối soát</span></span>`
+                    : `<span class="text-xs text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded flex items-center space-x-1"><i class="fa-solid fa-triangle-exclamation"></i> <span>Cần kiểm tra</span></span>`;
+
+                const item = `
+                    <div class="p-4 border ${isApproved ? 'border-slate-100 bg-slate-50/50' : 'border-amber-100 bg-amber-50/30'} rounded-xl space-y-3">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <span class="text-xs text-slate-400 font-semibold block">${txn.time}</span>
+                                <strong class="text-sm text-slate-800 font-bold block mt-0.5">${txn.studentName}</strong>
+                                <span class="text-xs text-slate-500 font-mono">Mã HS: ${txn.studentId}</span>
+                            </div>
+                            <strong class="text-sm text-indigo-700 font-bold">${formatCurrency(txn.amount)}</strong>
+                        </div>
+                        <div class="bg-white p-2 rounded-lg border border-slate-100 text-xs text-slate-500 flex items-center justify-between">
+                            <div>
+                                <span class="text-slate-400 block">Nội dung CK:</span>
+                                <span class="font-mono font-bold text-slate-700 block">${txn.notes}</span>
+                            </div>
+                            ${statusBadge}
+                        </div>
+                    </div>
+                `;
+                listContainer.innerHTML += item;
+            });
+        }
+
+        async function toggleStudentPayment(studentId, newStatus) {
+            try {
+                if (isLiveMode) {
+                    await fetch(`${systemConfig.appsScriptUrl}?action=update_status&studentId=${studentId}&status=${newStatus}`);
+                } else {
+                    const student = offlineStudents.find(s => s.id === studentId);
+                    if (student) {
+                        student.status = newStatus;
+                        localStorage.setItem('edu_offline_students', JSON.stringify(offlineStudents));
+                    }
+                }
+                showNotification("💳 Cập nhật", "Trạng thái đóng phí đã được cập nhật thành công!", "success");
+                updateDashboard();
+                if (currentActiveStudent && currentActiveStudent.id === studentId) {
+                    currentActiveStudent.status = newStatus;
+                    renderParentResult(currentActiveStudent);
+                }
+            } catch (err) {
+                alert('Có lỗi xảy ra khi cập nhật lên Google Sheets!');
+            }
+        }
+
+        // --- STREAMING_CHUNK: Tạo quy trình thêm học sinh và chọn môn học chéo... ---
+
+        function openAddStudentModal() {
+            const container = document.getElementById('class-checkboxes-container');
+            container.innerHTML = '';
+            
+            AVAILABLE_CLASSES.forEach(c => {
+                const row = `
+                    <label class="flex items-center space-x-3 text-sm font-medium text-slate-700 py-1.5 hover:bg-slate-100 px-2 rounded-lg cursor-pointer">
+                        <input type="checkbox" name="classes" value="${c.id}" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                        <span class="flex-grow">${c.name} - <strong class="text-indigo-600">${formatCurrency(c.fee)}</strong></span>
+                    </label>
+                `;
+                container.innerHTML += row;
+            });
+
+            document.getElementById('modal-add-student').classList.remove('hidden');
+        }
+
+        function closeAddStudentModal() {
+            document.getElementById('modal-add-student').classList.add('hidden');
+            document.getElementById('add-student-form').reset();
+        }
+
+        async function saveNewStudent(e) {
+            e.preventDefault();
+
+            const name = document.getElementById('add-name').value.trim();
+            const phone = document.getElementById('add-phone').value.trim();
+            const cccd = document.getElementById('add-cccd').value.trim() || 'N/A';
+            const parentName = document.getElementById('add-parent-name').value.trim() || `Phụ huynh ${name}`;
+            
+            const checkedBoxes = document.querySelectorAll('input[name="classes"]:checked');
+            const selectedClasses = Array.from(checkedBoxes).map(cb => cb.value);
+
+            if (selectedClasses.length === 0) {
+                alert('Vui lòng chọn ít nhất một lớp học!');
+                return;
+            }
+
+            const newStudentId = 'HS-' + Math.floor(1000 + Math.random() * 9000);
+            let totalFee = 0;
+            selectedClasses.forEach(classId => {
+                const c = AVAILABLE_CLASSES.find(x => x.id === classId);
+                if (c) totalFee += c.fee;
+            });
+
+            const newStudent = {
+                id: newStudentId,
+                name: name,
+                parentName: parentName,
+                phone: phone,
+                cccd: cccd,
+                classes: selectedClasses,
+                status: 'unpaid',
+                totalFee: totalFee
+            };
+
+            if (isLiveMode) {
+                alert("⚠️ Lưu ý: Vì bạn đang chạy Live Mode thực tế, vui lòng thêm dòng học viên này trực tiếp vào Google Sheets theo định dạng để đồng bộ, hoặc nhập qua Sheets API.");
+            } else {
+                offlineStudents.push(newStudent);
+                localStorage.setItem('edu_offline_students', JSON.stringify(offlineStudents));
+                showNotification("🎉 Chúc mừng", `Thêm học sinh ${name} thành công!`, "success");
+            }
+
+            closeAddStudentModal();
+            updateDashboard();
+        }
+
+        async function filterAdminStudents() {
+            const searchVal = document.getElementById('admin-search-input').value.toLowerCase().trim();
+            const statusVal = document.getElementById('admin-filter-status').value;
+
+            let students = [];
+            if (isLiveMode) {
+                const res = await fetch(`${systemConfig.appsScriptUrl}?action=get_all`);
+                const data = await res.json();
+                if (data.success) students = data.students;
+            } else {
+                students = offlineStudents;
+            }
+
+            const filtered = students.filter(student => {
+                const matchesSearch = student.name.toLowerCase().includes(searchVal) || 
+                                      student.id.toLowerCase().includes(searchVal) ||
+                                      student.phone.includes(searchVal);
+                const matchesStatus = statusVal === 'all' || student.status === statusVal;
+                return matchesSearch && matchesStatus;
+            });
+
+            renderAdminStudentsTable(filtered);
+        }
+
+        // Khởi động khi load trang
+        window.onload = function() {
+            initApp();
+        };
+    </script>
+</body>
+</html>
